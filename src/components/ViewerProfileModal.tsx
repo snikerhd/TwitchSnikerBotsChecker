@@ -140,7 +140,7 @@ export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, cr
                     </div>
                     <div className="flex justify-between px-4 py-2.5">
                       <span className="text-gray-500">A Seguir</span>
-                      <span className="text-white">{profile.followingCount.toLocaleString()}</span>
+                      <span className="text-white">{profile.followingAvailable ? profile.followingCount.toLocaleString() : '—'}</span>
                     </div>
                   </div>
                 </div>
@@ -169,7 +169,7 @@ export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, cr
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center">
                     <Star className="w-4 h-4 text-yellow-400 mx-auto mb-1" />
-                    <div className="text-lg font-bold text-white">{profile.followingCount.toLocaleString()}</div>
+                    <div className="text-lg font-bold text-white">{profile.followingAvailable ? profile.followingCount.toLocaleString() : '—'}</div>
                     <div className="text-[10px] text-gray-500">A Seguir</div>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center">
@@ -214,9 +214,21 @@ export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, cr
 
                 {profile.following.length === 0 && (
                   <div className="text-center py-6 bg-white/[0.02] rounded-xl border border-white/[0.06]">
-                    <Users className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-                    <p className="text-xs text-gray-500">Não segue ninguém (ou dados indisponíveis)</p>
-                    {isBot && <p className="text-xs text-red-400 mt-1">⚠️ Contas bot geralmente não seguem ninguém</p>}
+                    {profile.followingAvailable ? (
+                      <>
+                        <Users className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                        <p className="text-xs text-gray-500">Não segue ninguém</p>
+                        {isBot && <p className="text-xs text-red-400 mt-1">⚠️ Contas bot geralmente não seguem ninguém</p>}
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                        <p className="text-xs text-gray-400 font-medium">Dados indisponíveis</p>
+                        <p className="text-[11px] text-gray-500 mt-1 px-4">
+                          A Twitch tornou as listas de "a seguir" privadas — já não é possível ver quem um viewer segue.
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
 

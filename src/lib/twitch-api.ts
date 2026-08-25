@@ -110,6 +110,8 @@ export interface ViewerFullProfile {
   isPartner: boolean;
   isAffiliate: boolean;
   following: FollowedChannel[];
+  /** false = a Twitch já não devolve a lista "a seguir" (listas privadas) */
+  followingAvailable: boolean;
 }
 
 export interface FollowedChannel {
@@ -267,17 +269,18 @@ export async function getUsersInfoFast(
 // ─── Viewer Profile with Following ────────────
 
 export async function getViewerProfile(login: string): Promise<ViewerFullProfile | null> {
-  // Fetch user info + following in parallel
+  // Nota: desde 2024/2025 a Twitch tornou as listas de "a seguir" privadas.
+  // O GQL devolve edges vazias para qualquer utilizador, mesmo que siga canais.
   const userQuery = `query {
     user(login: "${login}") {
       login displayName description createdAt
       profileImageURL(width: 300)
       followers { totalCount }
-      follows { totalCount }
       roles { isPartner isAffiliate }
     }
   }`;
 
+  // Tentativa 1: persisted query usada pelo próprio site da Twitch
   const followingPayload = [{
     operationName: 'ChannelFollows',
     variables: { limit: 100, login: login, order: 'DESC' },
@@ -289,31 +292,78 @@ export async function getViewerProfile(login: string): Promise<ViewerFullProfile
     },
   }];
 
+  // Tentativa 2: query inline com totalCount (fallback)
+  const inlineFollowingQuery = `query {
+    user(login: "${login}") {
+      follows(first: 100, order: DESC) {
+        totalCount
+        edges { followedAt node { login displayName profileImageURL(width: 50) } }
+      }
+    }
+  }`;
+
   try {
-    const [userData, followData] = await gqlParallel([
-      { query: userQuery, variables: {} },
-      followingPayload,
+    const [userData, followData] = await Promise.allSettled([
+      gqlRequest({ query: userQuery, variables: {} }),
+      gqlRequest(followingPayload),
     ]);
 
-    const u = (userData as any)?.data?.user;
+    const u = userData.status === 'fulfilled'
+      ? (userData.value as any)?.data?.user
+      : null;
     if (!u) return null;
 
-    // Parse following
+    // Parse da lista "a seguir" — tentar persisted query primeiro
     const following: FollowedChannel[] = [];
-    const edges = (followData as any)?.[0]?.data?.user?.follows?.edges;
-    if (Array.isArray(edges)) {
-      for (const edge of edges) {
-        const node = edge?.node;
-        if (node) {
-          following.push({
-            login: node.login,
-            displayName: node.displayName,
-            profileImageURL: node.profileImageURL || '',
-            followedAt: edge.followedAt || '',
-          });
+    let gotEdgesFromApi = false;
+    let followingCount: number | null = null;
+
+    if (followData.status === 'fulfilled') {
+      const followConn = (followData.value as any)?.[0]?.data?.user?.follows;
+      const edges = followConn?.edges;
+      if (Array.isArray(edges)) {
+        gotEdgesFromApi = true;
+        for (const edge of edges) {
+          const node = edge?.node;
+          if (node) {
+            following.push({
+              login: node.login,
+              displayName: node.displayName,
+              profileImageURL: node.profileImageURL || '',
+              followedAt: edge.followedAt || '',
+            });
+          }
         }
       }
     }
+
+    // Fallback: query inline (pode dar totalCount mesmo sem edges, ou vice-versa)
+    try {
+      const inlineData = await gqlRequest({ query: inlineFollowingQuery, variables: {} });
+      const conn = (inlineData as any)?.data?.user?.follows;
+      if (conn) {
+        if (typeof conn.totalCount === 'number') followingCount = conn.totalCount;
+        const edges = conn.edges;
+        if (Array.isArray(edges) && edges.length > 0) {
+          gotEdgesFromApi = true;
+          for (const edge of edges) {
+            const node = edge?.node;
+            if (node && !following.some(f => f.login === node.login)) {
+              following.push({
+                login: node.login,
+                displayName: node.displayName,
+                profileImageURL: node.profileImageURL || '',
+                followedAt: edge.followedAt || '',
+              });
+            }
+          }
+          if (followingCount === null) followingCount = following.length;
+        }
+      }
+    } catch { /* indisponível */ }
+
+    // Dados disponíveis se obtivemos edges reais ou um totalCount válido
+    const followingAvailable = following.length > 0 || followingCount !== null;
 
     return {
       login: u.login,
@@ -322,10 +372,11 @@ export async function getViewerProfile(login: string): Promise<ViewerFullProfile
       createdAt: u.createdAt,
       profileImageURL: u.profileImageURL,
       followers: u.followers?.totalCount ?? 0,
-      followingCount: u.follows?.totalCount ?? following.length,
+      followingCount: followingAvailable ? (followingCount ?? following.length) : 0,
       isPartner: u.roles?.isPartner ?? false,
       isAffiliate: u.roles?.isAffiliate ?? false,
       following,
+      followingAvailable,
     };
   } catch (err) {
     console.error('Error fetching viewer profile:', err);
