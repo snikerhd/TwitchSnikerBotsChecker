@@ -217,6 +217,7 @@ export interface UserBasicInfo {
   displayName: string;
   createdAt: string;
   profileImageURL: string;
+  followers: number;
 }
 
 export async function getUsersInfoFast(
@@ -242,7 +243,7 @@ export async function getUsersInfoFast(
 
     const queries = group.map(batch => {
       const fields = batch.map((login, idx) =>
-        `u${idx}: user(login: "${login}") { login displayName createdAt profileImageURL(width: 50) }`
+        `u${idx}: user(login: "${login}") { login displayName createdAt profileImageURL(width: 50) followers { totalCount } }`
       ).join('\n');
       return { query: `query { ${fields} }`, variables: {} };
     });
@@ -255,7 +256,13 @@ export async function getUsersInfoFast(
       if (!data) continue;
       for (const key of Object.keys(data)) {
         const user = data[key];
-        if (user) result.set(user.login.toLowerCase(), user);
+        if (user) result.set(user.login.toLowerCase(), {
+          login: user.login,
+          displayName: user.displayName,
+          createdAt: user.createdAt ?? '',
+          profileImageURL: user.profileImageURL ?? '',
+          followers: user.followers?.totalCount ?? 0,
+        });
       }
     }
 

@@ -13,7 +13,7 @@ import {
   getChannelInfo, getChattersParallel, getUsersInfoFast,
   getViewerCount, type UserInfo, type ChattersData,
 } from '../lib/twitch-api';
-import { analyzeBotPatterns, classifyViewer, type BotAnalysis } from '../lib/bot-detector';
+import { analyzeBotPatterns, classifyViewer, scoreViewerHeuristics, type BotAnalysis } from '../lib/bot-detector';
 import ViewerProfileModal from './ViewerProfileModal';
 
 interface Props { channelName: string; onBack: () => void; }
@@ -25,6 +25,7 @@ interface TrackedViewer {
   profileImageURL: string; isBot: boolean; firstSeen: number;
   lastSeen: number; role: string; sameDayCount: number;
   status: ViewerStatus;
+  botScore: number; botReasons: string[]; followers: number;
 }
 
 interface TimePoint { time: string; viewers: number; authenticated: number; }
@@ -145,6 +146,7 @@ export default function TrackerApp({ channelName, onBack }: Props) {
             updated.set(key, {
               login: viewer, displayName: info?.displayName ?? viewer,
               createdAt: info?.createdAt ?? '', profileImageURL: info?.profileImageURL ?? '',
+              botScore: 0, botReasons: [], followers: info?.followers ?? 0,
               isBot: false, firstSeen: now, lastSeen: now, role: roleMap.get(viewer) ?? 'viewer',
               sameDayCount: 0, status: 'ok' as ViewerStatus,
             });
@@ -166,22 +168,30 @@ export default function TrackerApp({ channelName, onBack }: Props) {
           dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
         }
 
-        // 3) Classificação:
-        //   Bot = classificado pelo algoritmo mensal (spike months)
-        //   Suspeito = sameDayCount >= 2 mas NÃO é bot mensal
+        // 3) Classificação (combinada):
+        //   Bot = algoritmo mensal (spike months) OU heurística ≥ 60
+        //   Suspeito = heurística 35–59 OU sameDayCount >= 2 (sem ser bot)
         //   OK = nenhum
         for (const [, v] of updated) {
-          if (!v.createdAt) { v.sameDayCount = 0; v.status = 'ok'; v.isBot = false; continue; }
+          if (!v.createdAt) { v.sameDayCount = 0; v.status = 'ok'; v.isBot = false; v.botScore = 0; v.botReasons = []; continue; }
           const dayKey = new Date(v.createdAt).toISOString().split('T')[0];
           v.sameDayCount = dayCounts.get(dayKey) || 0;
 
-          // Bot = algoritmo mensal da extensão (SÓ este decide bot)
-          const isBot = classifyViewer(v.createdAt, analysis.spikeMonths, analysis.baseline);
+          // Heurística por conta (score 0–100)
+          const h = scoreViewerHeuristics({
+            login: v.login, createdAt: v.createdAt,
+            profileImageURL: v.profileImageURL, followers: v.followers,
+          });
+          v.botScore = h.score;
+          v.botReasons = h.reasons;
+
+          // Bot = algoritmo mensal da extensão OU heurística alta
+          const isBot = classifyViewer(v.createdAt, analysis.spikeMonths, analysis.baseline) || h.level === 'bot';
           v.isBot = isBot;
 
           if (isBot) {
             v.status = 'bot';
-          } else if (v.sameDayCount >= 2) {
+          } else if (h.level === 'suspeito' || v.sameDayCount >= 2) {
             v.status = 'suspeito';
           } else {
             v.status = 'ok';
@@ -456,6 +466,8 @@ export default function TrackerApp({ channelName, onBack }: Props) {
           createdAt={svCreatedAt}
           firstSeen={sv?.firstSeen}
           lastSeen={sv?.lastSeen}
+          botScore={sv?.botScore}
+          botReasons={sv?.botReasons}
           onClose={() => setSelectedViewer(null)}
         />;
       })()}

@@ -13,6 +13,8 @@ interface Props {
   createdAt?: string;
   firstSeen?: number;
   lastSeen?: number;
+  botScore?: number;
+  botReasons?: string[];
   onClose: () => void;
 }
 
@@ -24,7 +26,7 @@ function fmtDuration(ms: number): string {
   return `${sec}s`;
 }
 
-export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, createdAt: viewerCreatedAt, firstSeen, lastSeen, onClose }: Props) {
+export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, createdAt: viewerCreatedAt, firstSeen, lastSeen, botScore, botReasons, onClose }: Props) {
   const [profile, setProfile] = useState<ViewerFullProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -145,6 +147,31 @@ export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, cr
                   </div>
                 </div>
 
+                {/* Análise heurística de bot */}
+                {typeof botScore === 'number' && (botScore > 0 || isBot) && (
+                  <div className={`p-3 rounded-xl border ${isBot ? 'bg-red-500/5 border-red-500/20' : 'bg-orange-500/5 border-orange-500/20'}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold text-white flex items-center gap-1.5">
+                        <Bot className="w-3.5 h-3.5" /> Análise Heurística
+                      </span>
+                      <span className={`text-xs font-bold ${isBot ? 'text-red-400' : botScore >= 35 ? 'text-orange-400' : 'text-green-400'}`}>
+                        {botScore}/100
+                      </span>
+                    </div>
+                    {botReasons && botReasons.length > 0 ? (
+                      <ul className="space-y-1">
+                        {botReasons.map((r, i) => (
+                          <li key={i} className="text-[11px] text-gray-400 flex items-start gap-1.5">
+                            <span className="text-red-400 mt-0.5">•</span> {r}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-[11px] text-gray-500">Sem sinais heurísticos relevantes nesta conta.</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Alerta contas no mesmo dia */}
                 {(accountsOnSameDay ?? 0) >= 3 && (
                   <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl">
@@ -225,7 +252,7 @@ export default function ViewerProfileModal({ login, isBot, accountsOnSameDay, cr
                         <Shield className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                         <p className="text-xs text-gray-400 font-medium">Dados indisponíveis</p>
                         <p className="text-[11px] text-gray-500 mt-1 px-4">
-                          A Twitch tornou as listas de "a seguir" privadas — já não é possível ver quem um viewer segue.
+                          A Twitch tornou as listas de "a seguir" privadas (desde 2024/2025) — a API pública já não devolve quem um viewer segue, mesmo com totalCount. Isto aplica-se a qualquer site/extensão sem login OAuth do próprio viewer.
                         </p>
                       </>
                     )}

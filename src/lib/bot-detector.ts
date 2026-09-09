@@ -156,3 +156,88 @@ export function classifyViewer(
   const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   return spikeMonths.includes(key);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Heurísticas por conta (melhoria sobre o algoritmo mensal):
+// combina padrões de username, avatar padrão, seguidores e
+// idade da conta numa pontuação 0–100 com razões explicáveis.
+// ─────────────────────────────────────────────────────────────
+
+export interface HeuristicInput {
+  login: string;
+  createdAt: string;
+  profileImageURL: string;
+  followers: number;
+}
+
+export interface HeuristicResult {
+  score: number; // 0–100
+  reasons: string[];
+  level: 'bot' | 'suspeito' | 'ok';
+}
+
+const DEFAULT_AVATAR_PATTERNS = [
+  'user-default-pictures',
+  'user_typeimages',
+  'default-profile-image',
+  'xarth/404_user',
+];
+
+// Padrões típicos de usernames gerados por bots:
+//   adjetivo_substantivo1234, user84920, StreamViewer_39021, aa12bb99, etc.
+const BOT_USERNAME_PATTERNS: { re: RegExp; weight: number; reason: string }[] = [
+  { re: /^[a-z]+_[a-z]+_\d{2,6}$/i, weight: 30, reason: 'Nome no formato palavra_palavra_número (típico de bots gerados)' },
+  { re: /^[a-z]+_\d{3,8}$/i, weight: 25, reason: 'Nome no formato palavra_número (típico de bots gerados)' },
+  { re: /^(user|viewer|guest|stream)[-_]?\d{3,}$/i, weight: 35, reason: 'Nome genérico com números (user/viewer/guest + número)' },
+  { re: /(?:[a-z]{2}\d{2}){2,}/i, weight: 25, reason: 'Padrão letras+números repetido (ex: ab12cd34)' },
+  { re: /^\d+$/, weight: 40, reason: 'Nome composto apenas por números' },
+  { re: /^[a-z]{8,}\d{4,}$/i, weight: 20, reason: 'Sequência de letras seguida de muitos números' },
+];
+
+export function scoreViewerHeuristics(input: HeuristicInput): HeuristicResult {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const ageDays = input.createdAt
+    ? Math.floor((Date.now() - new Date(input.createdAt).getTime()) / 86400000)
+    : -1;
+
+  // 1) Avatar padrão (nunca personalizado) — sinal forte em contas novas
+  const hasDefaultAvatar = DEFAULT_AVATAR_PATTERNS.some(p => (input.profileImageURL || '').toLowerCase().includes(p));
+  if (hasDefaultAvatar) {
+    score += ageDays >= 0 && ageDays < 90 ? 25 : 12;
+    reasons.push('Avatar padrão da Twitch (nunca personalizado)');
+  }
+
+  // 2) Username típico de bot
+  for (const p of BOT_USERNAME_PATTERNS) {
+    if (p.re.test(input.login)) {
+      score += p.weight;
+      reasons.push(p.reason);
+      break; // apenas o padrão mais forte conta
+    }
+  }
+
+  // 3) Seguidores + idade
+  if (ageDays >= 0) {
+    if (ageDays < 7) {
+      score += 20;
+      reasons.push('Conta com menos de 7 dias');
+    } else if (ageDays < 30) {
+      score += 12;
+      reasons.push('Conta com menos de 30 dias');
+    }
+    if (input.followers === 0 && ageDays < 90) {
+      score += 10;
+      reasons.push('0 seguidores numa conta recente');
+    }
+  }
+
+  // 4) Conta antiga com avatar padrão e 0 seguidores é menos suspeita
+  if (ageDays > 365 && input.followers > 0) score -= 10;
+
+  score = Math.max(0, Math.min(100, score));
+
+  const level: HeuristicResult['level'] = score >= 60 ? 'bot' : score >= 35 ? 'suspeito' : 'ok';
+  return { score, reasons, level };
+}
