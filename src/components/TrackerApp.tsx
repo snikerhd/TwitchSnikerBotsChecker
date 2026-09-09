@@ -185,8 +185,12 @@ export default function TrackerApp({ channelName, onBack }: Props) {
           v.botScore = h.score;
           v.botReasons = h.reasons;
 
-          // Bot = algoritmo mensal da extensão OU heurística alta
-          const isBot = classifyViewer(v.createdAt, analysis.spikeMonths, analysis.baseline) || h.level === 'bot';
+          // Bot = heurística alta OU (spike mensal COM sinais adicionais)
+          // O spike mensal sozinho gera falsos positivos (contas antigas
+          // legítimas criadas num mês de pico), por isso exige apoio:
+          // score heurístico >= 35 ou 3+ contas criadas no mesmo dia.
+          const spikeMatch = classifyViewer(v.createdAt, analysis.spikeMonths, analysis.baseline);
+          const isBot = h.level === 'bot' || (spikeMatch && (h.score >= 35 || v.sameDayCount >= 3));
           v.isBot = isBot;
 
           if (isBot) {
