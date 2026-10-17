@@ -20,12 +20,6 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
-    rollupOptions: {
-      external: ['lucide-react', 'react-is'],
-      output: {
-        manualChunks: undefined,
-      },
-    },
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'lucide-react', 'recharts', 'clsx', 'tailwind-merge', 'framer-motion'],
