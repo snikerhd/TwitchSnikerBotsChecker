@@ -1,5 +1,0 @@
-{
-  "buildCommand": "npx vite build",
-  "installCommand": "npm install",
-  "framework": null
-}
